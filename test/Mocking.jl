@@ -96,3 +96,13 @@ mend(isfile, mock_isfile) do
 end
 
 @test isfile(tmp_file) == false
+
+
+# Breaking?
+mock_isfile_generic(f::AbstractString) = f == tmp_file || Original.isfile(f)
+patches = [
+    Patch(Base.isfile, mock_isfile_generic)
+]
+mend(patches) do
+    @test isfile(tmp_file) == true
+end
