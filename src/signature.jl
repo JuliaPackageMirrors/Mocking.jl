@@ -4,13 +4,13 @@ type Signature
     types::Array{Type}
 end
 
-function Signature(f::Function)
-    names, types = parameters(f)
+function Signature(m::Method)
+    names, types = parameters(m)
     return Signature(types)
 end
 
-function Signature(m::Method)
-    names, types = parameters(m)
+function Signature(f::Function)
+    names, types = parameters(f)
     return Signature(types)
 end
 
@@ -28,7 +28,7 @@ end
 
 ==(a::Signature, b::Signature) = a.types == b.types
 
-convert(::Type{Tuple}, s::Signature) = Tuple{s.types[2:end]...}
+convert(::Type{Tuple}, s::Signature) = Tuple{s.types...}
 
 function parameters(m::Method)
     expr = Base.uncompressed_ast(m.func).args[1]
@@ -38,23 +38,16 @@ function parameters(m::Method)
         names[i] = isa(field, Symbol) ? field : field.args[1]
         types[i] = m.sig.parameters[i]
     end
-    return names, types
+
+    # Remove the function name and its type
+    return names[2:end], types[2:end]
 end
 
 function parameters(f::Function)
-    isgeneric(f) && throw(ArgumentError("only works for anonymous functions"))
-    expr = Base.uncompressed_ast(f.code).args[1]
-    names = Array{Symbol}(length(expr))
-    types = Array{Type}(length(expr))
-    for (i, field) in enumerate(expr)
-        name, typ = isa(field, Symbol) ? (field, Any) : field.args
-        names[i] = name
-        if isa(typ, Expr) && typ.head == :...
-            types[i] = Vararg{eval(typ.args[1])}
-        else
-            types[i] = eval(typ)
-        end
+    m = methods(f)
+    if length(m) > 1
+        throw(ArgumentError("only works for functions with a single method"))
     end
-    return names, types
+    return parameters(first(m))
 end
 
