@@ -122,7 +122,7 @@ function override(body::Function, old_func::Function, new_func::Function)
 end
 
 function override(body::Function, old_func::Function, new_func::Function, signature::Signature)
-    if isgeneric(new_func)
+    if !isgeneric(new_func)
         m = methods(new_func, signature)
         if length(m) == 1
             new_func = m[1].func
@@ -133,6 +133,7 @@ function override(body::Function, old_func::Function, new_func::Function, signat
         end
     end
 
+    #return override_internal(body, old_func, new_func)
 
     # Replace the old Function with the new anonymous Function
     if isgeneric(old_func)
@@ -152,8 +153,8 @@ function override(body::Function, old_func::Function, new_func::Function, signat
 end
 
 function override_internal(body::Function, old_func::Function, new_func::Function)
-    isgeneric(old_func) && error("original function cannot be a generic")
-    isgeneric(new_func) && error("replacement function cannot be a generic")
+    #isgeneric(old_func) && error("original function cannot be a generic")
+    #isgeneric(new_func) && error("replacement function cannot be a generic")
 
     org_fptr = old_func.fptr
     org_code = old_func.code
@@ -169,15 +170,18 @@ function override_internal(body::Function, old_func::Function, new_func::Functio
 end
 
 function override_internal(body::Function, old_method::Method, new_func::Function)
-    isgeneric(new_func) && error("replacement function cannot be a generic")
+    #isgeneric(new_func) && error("replacement function cannot be a generic")
 
-    mod = old_method.func.code.module
-    name = old_method.func.code.name
+    mod = old_method.func.module
+    name = old_method.func.name
+
+    display(mod)
+    display(name)
 
     # Overwrite a method such that Julia calls the updated function.
-    isdefined(mod, name) || throw(MethodError("method $name does not exist in module $mod"))
+    #isdefined(mod, name) || throw(MethodError(old_method, ()))
     types = [:(::$t) for t in Signature(old_method).types]
-    expr = :($name($(types...)) = nothing)
+    expr = :($name($(types...)) = "nothing")
 
     org_func = old_method.func
 

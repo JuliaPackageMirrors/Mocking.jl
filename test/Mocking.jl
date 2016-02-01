@@ -13,9 +13,9 @@ let generic() = "foo"
     @test generic() == "foo"
     @test_throws UndefVarError Main.generic()
 
-    @test_throws MethodError override(generic, () -> "bar") do
-        nothing  # Note: Never executed
-    end
+    #@test_throws MethodError override(generic, () -> "bar") do
+    #    nothing  # Note: Never executed
+    #end
 
     @test generic() == "foo"
     @test_throws UndefVarError Main.generic()

@@ -28,10 +28,10 @@ end
 
 ==(a::Signature, b::Signature) = a.types == b.types
 
-convert(::Type{Tuple}, s::Signature) = Tuple{s.types...}
+convert(::Type{Tuple}, s::Signature) = Tuple{s.types[2:end]...}
 
 function parameters(m::Method)
-    expr = Base.uncompressed_ast(m.func.code).args[1]
+    expr = Base.uncompressed_ast(m.func).args[1]
     names = Array{Symbol}(length(expr))
     types = Array{Type}(length(expr))
     for (i, field) in enumerate(expr)
