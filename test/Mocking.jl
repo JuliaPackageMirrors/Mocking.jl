@@ -1,10 +1,12 @@
-import Mocking: override, mend, Signature
+import Mocking: override, mend, Signature, ignore_stderr, FunctionError
 using Base.Test
 
 # Test the concept of overwriting methods in Julia
 let generic() = "foo"
     @test generic() == "foo"
-    generic() = "bar"
+    ignore_stderr() do
+        generic() = "bar"
+    end
     @test generic() == "bar"
 end
 
@@ -13,21 +15,37 @@ let generic() = "foo"
     @test generic() == "foo"
     @test_throws UndefVarError Main.generic()
 
-    #@test_throws MethodError override(generic, () -> "bar") do
-    #    nothing  # Note: Never executed
-    #end
+    # If we could overwrite generic functions create in a let:
+    # override(generic, () -> "bar") do
+    #     @test generic() == "bar"
+    # end
+
+    @test_throws FunctionError override(generic, () -> "bar") do
+        nothing  # Note: Never should be executed
+    end
 
     @test generic() == "foo"
     @test_throws UndefVarError Main.generic()
 end
 
-# Non-generic functions can be overridden no matter where they are defined
-let anonymous = () -> "foo"
-    @test anonymous() == "foo"
-    override(anonymous, () -> "bar") do
-        @test anonymous() == "bar"
+if VERSION < v"0.5-"
+    # Non-generic functions can be overridden no matter where they are defined
+    let anonymous = () -> "foo"
+        @test anonymous() == "foo"
+        override(anonymous, () -> "bar") do
+            @test anonymous() == "bar"
+        end
+        @test anonymous() == "foo"
     end
-    @test anonymous() == "foo"
+else
+    # As of Julia v0.5 anonymous functions are generic
+    let anonymous = () -> "foo"
+        @test anonymous() == "foo"
+        @test_throws FunctionError override(anonymous, () -> "bar") do
+            nothing  # Note: Never should be executed
+        end
+        @test anonymous() == "foo"
+    end
 end
 
 # Generic functions can be overwritten if they are defined globally within the module
@@ -44,8 +62,8 @@ let open = Base.open
 
     # Replacement is no longer ambiguious if we supply a specific signature
     mend(open, replacement, (AbstractString,)) do
-        @test readall(open("foo")) == "bar"
-        @test isa(open(@__FILE__), IOStream)  # Any other file works normally
+        @test @mendable readstring(open("foo")) == "bar"
+        @test @mendable isa(open(@__FILE__), IOStream)  # Any other file works normally
     end
 
     @test_throws SystemError open("foo")
@@ -53,8 +71,8 @@ let open = Base.open
     # Replacement is no longer ambiguious since we added a more specific signature
     replacement = (name::AbstractString) -> name == "foo" ? IOBuffer("bar") : Original.open(name)
     mend(open, replacement) do
-        @test readall(open("foo")) == "bar"
-        @test isa(open(@__FILE__), IOStream)  # Any other file works normally
+        @test @mendable readstring(open("foo")) == "bar"
+        @test @mendable isa(open(@__FILE__), IOStream)  # Any other file works normally
     end
 
     @test_throws SystemError open("foo")
@@ -67,8 +85,8 @@ end
 mock_open = (name::AbstractString) -> name == "foobar.txt" ? IOBuffer("Hello Julia") : Original.open(name)
 
 mend(open, mock_open) do
-    @test readall(open("foobar.txt")) == "Hello Julia"
-    @test isa(open(@__FILE__), IOStream)
+    @test @mendable readstring(open("foobar.txt")) == "Hello Julia"
+    @test @mendable isa(open(@__FILE__), IOStream)
 end
 
 @test_throws SystemError open("foobar.txt")
@@ -76,10 +94,10 @@ end
 # Ensure that compiled functions that use methods that will be mended are modified
 let
     # Example of why @mendable is needed:
-    invalid() = readall(open("foo"))
+    invalid() = readstring(open("foo"))
     @test_throws SystemError invalid()
 
-    replacement(name::AbstractString) = IOBuffer("bar")
+    replacement = (name::AbstractString) -> IOBuffer("bar")
     mend(open, replacement) do
         @test_throws SystemError invalid()  # Mend fails as open will be embedded
     end
@@ -87,10 +105,10 @@ let
     @test_throws SystemError invalid()
 
     # The @mendable macro in use:
-    valid() = @mendable readall(open("foo"))  # Force open not to be inlined here
+    valid() = @mendable readstring(open("foo"))  # Force open not to be inlined here
     @test_throws SystemError valid()
 
-    replacement(name::AbstractString) = IOBuffer("bar")
+    replacement = (name::AbstractString) -> IOBuffer("bar")
     mend(open, replacement) do
         @test valid() == "bar"
     end
@@ -129,8 +147,8 @@ let open = Base.open
     # Replacement is no longer ambiguious if we supply a specific signature
     patch = Patch(open, replacement, (AbstractString,))
     mend(patch) do
-        @test readall(open("foo")) == "bar"
-        @test isa(open(@__FILE__), IOStream)  # Any other file works normally
+        @test @mendable readstring(open("foo")) == "bar"
+        @test @mendable isa(open(@__FILE__), IOStream)  # Any other file works normally
     end
 
     @test_throws SystemError open("foo")
@@ -139,8 +157,8 @@ let open = Base.open
     replacement = (name::AbstractString) -> name == "foo" ? IOBuffer("bar") : Original.open(name)
     patch = Patch(open, replacement)
     mend(patch) do
-        @test readall(open("foo")) == "bar"
-        @test isa(open(@__FILE__), IOStream)  # Any other file works normally
+        @test @mendable readstring(open("foo")) == "bar"
+        @test @mendable isa(open(@__FILE__), IOStream)  # Any other file works normally
     end
 
     @test_throws SystemError open("foo")
@@ -148,7 +166,7 @@ end
 
 # Pre-creating patches allows making the mend call easier to read
 let open = Base.open, isfile = Base.isfile
-    internal(filename) = @mendable isfile(filename) && readall(open(filename))
+    internal(filename) = @mendable isfile(filename) && readstring(open(filename))
 
     # Testing with both generic and anonymous functions
     new_isfile(f::AbstractString) = f == "foo" ? true : Original.isfile(f)
@@ -175,40 +193,42 @@ end
 
 
 ### User assistive error messages ###
+empty = () -> nothing
 
 # Attempt to override a generic function with no methods
-let generic, empty_body = () -> nothing
+let generic, replacement
     function generic end
     replacement() = true
-    @test_throws ErrorException mend(empty_body, generic, replacement)
-    @test_throws ErrorException override(empty_body, generic, replacement)
+
+    @test_throws ErrorException mend(empty, generic, replacement)
+    @test_throws ErrorException override(empty, generic, replacement)
 end
 
 # Attempt to override a generic function with a generic function containing no methods
-let generic, empty_body = () -> nothing
+let generic, replacement
     generic() = true
     function replacement end
-    @test_throws ErrorException override(empty_body, generic, replacement)
-    @test_throws ErrorException mend(empty_body, generic, replacement)
+    @test_throws ErrorException override(empty, generic, replacement)
+    @test_throws ErrorException mend(empty, generic, replacement)
     @test_throws ErrorException Patch(generic, replacement)
     @test_throws ErrorException Patch(generic, replacement, [Any])
 end
 
-# Attempt to override a ambiguious generic function
-let generic, empty_body = () -> nothing
+# # Attempt to override a ambiguious generic function
+let generic, replacement
     generic(value::AbstractString) = value
     generic(value::Integer) = -value
     replacement(value) = true
-    @test_throws ErrorException override(empty_body, generic, replacement)
+    @test_throws ErrorException override(empty, generic, replacement)
 end
 
 # Attempt to override an non-ambiguious generic function with an ambiguious generic function
-let generic, empty_body = () -> nothing
+let generic, replacement
     generic(value) = value
     replacement(value::AbstractString) = "foo"
     replacement(value::Integer) = 0
-    @test_throws ErrorException mend(empty_body, generic, replacement)
-    @test_throws ErrorException override(empty_body, generic, replacement)
+    @test_throws ErrorException mend(empty, generic, replacement)
+    @test_throws ErrorException override(empty, generic, replacement)
     @test_throws ErrorException Patch(generic, replacement)
     @test_throws ErrorException Patch(generic, replacement, [Any])
 end

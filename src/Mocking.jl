@@ -8,40 +8,33 @@ end
 include("signature.jl")
 include("mendable.jl")
 include("util.jl")
+include("exception.jl")
 
 immutable Patch
     original::Function
-    replacement::Function  # only non-generic functions
+    new_implementation::Function
     signature::Signature
 
     function Patch(original::Function, replacement::Function, signature::Signature)
-        if isgeneric(replacement)
-            m = methods(replacement, signature)
-            if length(m) == 1
-                replacement = m[1].func
-            elseif length(m) == 0
-                error("explicit signature does not match any method")
-            else
-                error("explicit signature is ambigious; please make signature more specific")
-            end
+        m = methods(replacement, signature)
+        if length(m) == 1
+            return new(original, replacement, signature)
+        elseif length(m) == 0
+            error("explicit signature does not match any method")
+        else
+            error("explicit signature is ambigious; please make signature more specific")
         end
-
-        return new(original, replacement, signature)
     end
 end
 
 function Patch(original::Function, replacement::Function)
-    if !isgeneric(replacement)
-        signature = Signature(replacement)
+    m = collect(methods(replacement))
+    if length(m) == 1
+        signature = Signature(m[1])
+    elseif length(m) == 0
+        error("generic function doesn't contain any methods")
     else
-        m = collect(methods(replacement))
-        if length(m) == 1
-            signature = Signature(m[1])
-        elseif length(m) == 0
-            error("generic function doesn't contain any methods")
-        else
-            error("explicit signature required since replacement $replacement is a generic function with more than one method")
-        end
+        error("explicit signature required since replacement $replacement is a generic function with more than one method")
     end
     Patch(original, replacement, signature)
 end
@@ -67,21 +60,17 @@ end
 mend(body::Function, patches::Patch...) = mend(body, Patch[patches...])
 
 function mend(body::Function, patch::Patch)
-    mend(body, patch.original, patch.replacement, patch.signature)
+    mend(body, patch.original, patch.new_implementation, patch.signature)
 end
 
 function mend(body::Function, old_func::Function, new_func::Function)
-    if !isgeneric(new_func)
-        signature = Signature(new_func)
+    m = collect(methods(new_func))
+    if length(m) == 1
+        signature = Signature(m[1])
+    elseif length(m) == 0
+        error("generic function doesn't contain any methods")
     else
-        m = collect(methods(new_func))
-        if length(m) == 1
-            signature = Signature(m[1])
-        elseif length(m) == 0
-            error("generic function doesn't contain any methods")
-        else
-            error("explicit signature required since replacement $new_func is a generic function with more than one method")
-        end
+        error("explicit signature required since replacement $new_func is a generic function with more than one method")
     end
     mend(body, old_func, new_func, signature)
 end
@@ -100,97 +89,74 @@ function backup(body::Function, org_func::Function, signature::Signature)
     name = Base.function_name(org_func)
     types = [:(::$t) for t in signature.types]
     expr = :($name($(types...)) = nothing)
-    const backup_func = Core.eval(Original, expr)
+    backup_func = ignore_stderr() do
+        Core.eval(Original, expr)
+    end
     return override(body, backup_func, org_func, signature)
 end
 
 
 function override(body::Function, old_func::Function, new_func::Function)
-    if !isgeneric(new_func)
-        signature = Signature(new_func)
+    m = collect(methods(new_func))
+    if length(m) == 1
+        signature = Signature(m[1])
+    elseif length(m) == 0
+        error("generic function doesn't contain any methods")
     else
-        m = collect(methods(new_func))
-        if length(m) == 1
-            signature = Signature(m[1])
-        elseif length(m) == 0
-            error("generic function doesn't contain any methods")
-        else
-            error("explicit signature required since replacement $new_func is a generic function with more than one method")
-        end
+        error("explicit signature required since replacement $new_func is a generic function with more than one method")
     end
     override(body, old_func, new_func, signature)
 end
 
 function override(body::Function, old_func::Function, new_func::Function, signature::Signature)
-    if !isgeneric(new_func)
-        m = methods(new_func, signature)
-        if length(m) == 1
-            new_func = m[1].func
-        elseif length(m) == 0
-            error("signature does not match any method in function $new_func")
-        else
-            error("signature is ambigious; please make signature more specific\n    " * join(m, "\n    ") * "\n")
-        end
-    end
-
-    #return override_internal(body, old_func, new_func)
-
-    # Replace the old Function with the new anonymous Function
-    if isgeneric(old_func)
-        m = methods(old_func, signature)
-        if length(m) == 1
-            method = m[1]
-        elseif length(m) == 0
-            error("function signature does not exist")
-        else
-            error("ambigious function signature; please make signature more specific\n    " * join(m, "\n    ") * "\n")
-        end
-
-        return override_internal(body, method, new_func)
+    m = methods(new_func, signature)
+    if length(m) == 1
+        new_method = m[1]
+    elseif length(m) == 0
+        error("signature does not match any method in function $new_func")
     else
-        return override_internal(body, old_func, new_func)
+        error("signature is ambigious; please make signature more specific\n    " * join(m, "\n    ") * "\n")
     end
+
+    m = methods(old_func, signature)
+    if length(m) == 1
+        old_method = m[1]
+    elseif length(m) == 0
+        error("function signature does not exist")
+    else
+        error("ambigious function signature; please make signature more specific\n    " * join(m, "\n    ") * "\n")
+    end
+
+    return override(body, old_method, new_method)
 end
 
-function override_internal(body::Function, old_func::Function, new_func::Function)
-    #isgeneric(old_func) && error("original function cannot be a generic")
-    #isgeneric(new_func) && error("replacement function cannot be a generic")
-
-    org_fptr = old_func.fptr
-    org_code = old_func.code
-    old_func.fptr = new_func.fptr
-    old_func.code = new_func.code
-
-    try
-        return body()
-    finally
-        old_func.fptr = org_fptr
-        old_func.code = org_code
+function override(body::Function, old_method::Method, new_method::Method)
+    if isa(old_method.func, Function)
+        mod = old_method.func.code.module
+        name = old_method.func.code.name
+    else
+        # func is a LambdaInfo
+        mod = old_method.func.module
+        name = old_method.func.name
     end
-end
 
-function override_internal(body::Function, old_method::Method, new_func::Function)
-    #isgeneric(new_func) && error("replacement function cannot be a generic")
-
-    mod = old_method.func.module
-    name = old_method.func.name
-
-    display(mod)
-    display(name)
+    # Avoid overwriting or defining a method for a function that doesn't exist in the module
+    isdefined(mod, name) || throw(FunctionError(mod, name))
 
     # Overwrite a method such that Julia calls the updated function.
-    #isdefined(mod, name) || throw(MethodError(old_method, ()))
     types = [:(::$t) for t in Signature(old_method).types]
-    expr = :($name($(types...)) = "nothing")
+    expr = :($name($(types...)) = nothing)
 
-    org_func = old_method.func
+    # Save the original implementation prior to modifying it
+    org_impl = old_method.func
 
     # Ignore warning "Method definition ... overwritten"
     ignore_stderr() do
         Core.eval(mod, expr)
     end
 
-    old_method.func = new_func
+    # Replace implementation
+    old_method.func = new_method.func
 
     try
         return body()
@@ -199,10 +165,8 @@ function override_internal(body::Function, old_method::Method, new_func::Functio
         ignore_stderr() do
             Core.eval(mod, expr)
         end
-        old_method.func = org_func
+        old_method.func = org_impl
     end
 end
-
-
 
 end # module

@@ -2,6 +2,8 @@ import Base: Expr, methods, ==, convert
 
 type Signature
     types::Array{Type}
+
+    Signature(t) = new(to_array_type(t))
 end
 
 function Signature(m::Method)
@@ -13,8 +15,6 @@ function Signature(f::Function)
     names, types = parameters(f)
     return Signature(types)
 end
-
-Signature(t::ANY) = Signature(to_array_type(t))
 
 function methods(f::Function, sig::Signature)
     matching = methods(f, convert(Tuple, sig))
