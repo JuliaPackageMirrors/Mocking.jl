@@ -131,14 +131,7 @@ function override(body::Function, old_func::Function, new_func::Function, signat
 end
 
 function override(body::Function, old_method::Method, new_method::Method)
-    if isa(old_method.func, Function)
-        mod = old_method.func.code.module
-        name = old_method.func.code.name
-    else
-        # func is a LambdaInfo
-        mod = old_method.func.module
-        name = old_method.func.name
-    end
+    mod, name = module_and_name(old_method)
 
     # Avoid overwriting or defining a method for a function that doesn't exist in the module
     isdefined(mod, name) || throw(FunctionError(mod, name))

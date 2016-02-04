@@ -6,38 +6,40 @@ import Mocking: Signature, parameters
 #     @test_throws ArgumentError Signature(generic)
 # end
 
-f = () -> nothing
-@test parameters(f) == (Symbol[], Type[])
-@test Signature(f) == Signature([])
-@test convert(Tuple, Signature(f)) == Tuple{}
+let f
+    f = () -> nothing
+    @test parameters(f) == (Symbol[], Type[])
+    @test Signature(f) == Signature([])
+    @test convert(Tuple, Signature(f)) == Tuple{}
 
-f = (a) -> nothing
-@test parameters(f) == ([:a], [Any])
-@test Signature(f) == Signature([Any])
-@test convert(Tuple, Signature(f)) == Tuple{Any}
+    f = (a) -> nothing
+    @test parameters(f) == ([:a], [Any])
+    @test Signature(f) == Signature([Any])
+    @test convert(Tuple, Signature(f)) == Tuple{Any}
 
-f = (a::Int64) -> nothing
-@test parameters(f) == ([:a], [Int64])
-@test Signature(f) == Signature([Int64])
-@test convert(Tuple, Signature(f)) == Tuple{Int64}
+    f = (a::Int64) -> nothing
+    @test parameters(f) == ([:a], [Int64])
+    @test Signature(f) == Signature([Int64])
+    @test convert(Tuple, Signature(f)) == Tuple{Int64}
 
-f = (a, b::AbstractString) -> nothing
-@test parameters(f) == ([:a, :b], [Any, AbstractString])
-@test Signature(f) == Signature([Any, AbstractString])
-@test convert(Tuple, Signature(f)) == Tuple{Any,AbstractString}
+    f = (a, b::AbstractString) -> nothing
+    @test parameters(f) == ([:a, :b], [Any, AbstractString])
+    @test Signature(f) == Signature([Any, AbstractString])
+    @test convert(Tuple, Signature(f)) == Tuple{Any,AbstractString}
 
-f = (a...) -> nothing
-@test parameters(f) == ([:a], [Vararg{Any}])
-@test Signature(f) == Signature([Vararg{Any}])
-@test convert(Tuple, Signature(f)) == Tuple  # Note: Tuple == Tuple{Vararg{Any}}
+    f = (a...) -> nothing
+    @test parameters(f) == ([:a], [Vararg{Any}])
+    @test Signature(f) == Signature([Vararg{Any}])
+    @test convert(Tuple, Signature(f)) == Tuple  # Note: Tuple == Tuple{Vararg{Any}}
 
-f = (a, b...) -> nothing
-@test parameters(f) == ([:a, :b], [Any, Vararg{Any}])
-@test Signature(f) == Signature([Any, Vararg{Any}])
-@test convert(Tuple, Signature(f)) == Tuple{Any,Vararg{Any}}
+    f = (a, b...) -> nothing
+    @test parameters(f) == ([:a, :b], [Any, Vararg{Any}])
+    @test Signature(f) == Signature([Any, Vararg{Any}])
+    @test convert(Tuple, Signature(f)) == Tuple{Any,Vararg{Any}}
+end
 
 # New "methods" method allows us to isolate a vararg method
-let
+let m
     m() = "empty"
     m(arg) = "arg"
     m(args...) = "vararg"
@@ -53,7 +55,7 @@ end
 
 # Since we check for signature equality we could run into issues
 # with selecting methods via a subtype
-let
+let m
     m(a::Number) = Number
     m(a::Integer) = Integer
 
