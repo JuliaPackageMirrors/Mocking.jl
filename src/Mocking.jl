@@ -133,11 +133,20 @@ end
 function override(body::Function, old_method::Method, new_method::Method)
     mod, name = module_and_name(old_method)
 
+    # Dispatch will still take place on the signature of old method. If we check that the
+    # new method has the same or a more generic signature we can be confident that the new
+    # implementation will work with the old signature.
+    old_signature = Signature(old_method)
+    new_signature = Signature(new_method)
+    if !(convert(Tuple, old_signature) <: convert(Tuple, new_signature))
+        throw(OverrideError(old_signature, new_signature))
+    end
+
     # Avoid overwriting or defining a method for a function that doesn't exist in the module
     isdefined(mod, name) || throw(FunctionError(mod, name))
 
     # Overwrite a method such that Julia calls the updated function
-    types = [:(::$t) for t in Signature(old_method).types]
+    types = [:(::$t) for t in old_signature.types]
     expr = :($name($(types...)) = nothing)
 
     # Save the original implementation prior to modifying it

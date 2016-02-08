@@ -1,5 +1,5 @@
 using Mocking
-import Mocking: module_and_name, FunctionError
+import Mocking: module_and_name, FunctionError, OverrideError
 
 # Test the concept of overriding methods in Julia
 let generic() = "foo"
@@ -113,6 +113,27 @@ let fixed, dynamic
     @test dynamic() == "foo"
 end
 
+# When overriding a method the signature of the original method will be used when performing
+# dispatch. Due to this a more general method signature can override a more specific one but
+# not vice versa.
+#
+# Also note that the return types from the methods must be the same otherwise the function
+# override may not work as expected.
+
+_concrete(value::Rational) = value.den//value.num
+_abstract(value::Number) = value
+
+# Need to be careful that we don't allow a more specific implementation to overwrite a
+# general implementation.
+@test_throws OverrideError Mocking.override(_abstract, _concrete) do
+    @mendable _abstract(1)  # Would cause MethodError
+end
+
+# Specific implementations can be replaced by less specific implementations.
+Mocking.override(_concrete, _abstract) do
+    @test @mendable _concrete(1//2) == 1//2
+end
+
 
 ### User assistive error messages ###
 
@@ -126,6 +147,8 @@ single_generic() = true
 specific(value::AbstractString) = endof(value)
 specific(value::Integer) = -value
 general(value) = value
+
+
 
 # Ensure that the generic functions we have created have precisely the amount of methods we
 # have just declared. Otherwise things could potentially not raise and exception.

@@ -90,7 +90,7 @@ let
     internal(filename) = @mendable isfile(filename) && readstring(open(filename))
 
     # Testing with both generic and anonymous functions
-    new_isfile(f::AbstractString) = f == "foo" ? true : Original.isfile(f)
+    new_isfile(f...) = "foo" in f ? true : Original.isfile(f)
     new_open = (f::AbstractString) -> f == "foo" ? IOBuffer("bar") : Original.open(f)
 
     patch_isfile = Patch(isfile, new_isfile)
