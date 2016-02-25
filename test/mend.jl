@@ -111,3 +111,32 @@ let
         @test internal("foo") == false
     end
 end
+
+
+# In far more complicated situations it is possible that the exact method we are overriding
+# will be called without the @mendable flag. Mocking.jl should allow the original method to
+# be called without issue (such as a segfault).
+#
+# Note: A real-world scenario would be calling an external package that is using the same
+# method
+let func
+    function func()
+        # Needs to be sufficiently complicated that path can only be determined at runtime only.
+        # Equivalent to `path = @__FILE__`
+        path = first(filter(f -> f == basename(@__FILE__), readdir(dirname(@__FILE__))))
+
+        # Since we are not using @mendable here we will be calling the original open
+        open(path, "r") do fp
+            return "FOO"
+        end
+    end
+
+    # Show that running the function works. Note: It does not seem necessary to run/compile
+    # the function before its use in mend in order to produce the segfault.
+    @test func() == "FOO"
+
+    mock_open = (fn::Function, f::AbstractString) -> nothing
+    mend(Base.open, mock_open) do
+        @test func() == "FOO"
+    end
+end
